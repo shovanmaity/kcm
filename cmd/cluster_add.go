@@ -15,9 +15,7 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
-	"io"
 	"log"
 	"os"
 
@@ -36,33 +34,49 @@ var addCmd = &cobra.Command{
 	Long:  clusterAddCommandHelpText,
 	Run: func(addCmd *cobra.Command, args []string) {
 
+		// To check argument is passed or missing
 		if len(args) == 0 {
 			fmt.Println("cluster name is missing..")
 			os.Exit(1)
 		}
 
-		home, err := util.GetHomeDir()
+		// clusterPath contains cluster directory path ( $home/.kcm/<cluster-name>)
+		clusterPath, err := util.GetClusterPath(args[0])
 		if err != nil {
-			log.Fatal("Unable to get home dir, Please try again. error - " + err.Error())
+			log.Fatal("Unable to get cluster directory path. Error - ", err.Error())
 		}
 
-		if util.CheckFileOrDirectoryExists(home + "/.kcm/" + args[0]) {
+		// clusterConfigPath contains specific cluster config file path ( $home/.kcm/<cluster-name>/config)
+		clusterConfigPath, err := util.GetClusterConfigPath(args[0])
+		if err != nil {
+			log.Fatal("Unable to get cluster config file path. Error - ", err.Error())
+		}
+
+		// To check config file exists on the given path by the user
+		if !util.CheckFileOrDirectoryExists(clusterOptions.config) {
+			fmt.Println("Error: config file does not exist on the given path!")
+			os.Exit(1)
+		}
+
+		// // To check cluster directory exists or not
+		if util.CheckFileOrDirectoryExists(clusterPath) {
 			fmt.Println("Error: Cluster name " + args[0] + " already exists!")
 			os.Exit(1)
 		} else {
-			err = os.MkdirAll(home+"/.kcm/"+args[0], 0755)
+			err = os.MkdirAll(clusterPath, 0755)
 			if err != nil {
 				fmt.Println(err)
 				os.Exit(1)
 			}
 		}
 
-		_, err = copyConfigFile(clusterOptions.config, home+"/.kcm/"+args[0]+"/config")
+		// copy confile file from users specified location to .kcm cluster directory
+		_, err = util.CopyConfigFile(clusterOptions.config, clusterConfigPath)
 		if err != nil {
 			// To delete the clustername directory if something fails, so that again same cluster name can be retried.
-			errDeleteDirectory := deleteDirectory(home + "/.kcm/" + args[0])
+			errDeleteDirectory := util.DeleteDirectory(clusterPath)
 			if errDeleteDirectory != nil {
-				fmt.Println("error while deleting directory on fail. Try again with changing the cluster name or manually delete the directory with cluster name provided by you inside $HOME/.kcm/<cluster_name>")
+				fmt.Println("error while deleting directory on fail. Try again with changing the cluster name or manually delete the directory with cluster name provided by you inside $HOME/.kcm/<cluster_name>. Error - ", errDeleteDirectory.Error())
 			}
 			fmt.Println(err)
 			os.Exit(1)
@@ -75,34 +89,4 @@ func init() {
 	clusterCmd.AddCommand(addCmd)
 	addCmd.Flags().StringVarP(&clusterOptions.config, "config", "", clusterOptions.config, "Absolute path of cluster kubeconfig file")
 	addCmd.MarkFlagRequired("config")
-}
-
-// copyConfigFile copies file content from sourc (src) to destination (dst) path.
-func copyConfigFile(src, dst string) (int64, error) {
-	if !util.CheckFileOrDirectoryExists(src) {
-		return 0, errors.New("Error: config file does not exist on the given path")
-	}
-
-	source, err := os.Open(src)
-	if err != nil {
-		return 0, err
-	}
-	defer source.Close()
-
-	destination, err := os.Create(dst)
-	if err != nil {
-		return 0, err
-	}
-	defer destination.Close()
-	nBytes, err := io.Copy(destination, source)
-	return nBytes, err
-}
-
-// deleteDirectory is to delete directory in a given path.
-func deleteDirectory(path string) error {
-	err := os.Remove(path)
-	if err != nil {
-		return err
-	}
-	return nil
 }
